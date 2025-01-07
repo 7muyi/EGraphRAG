@@ -1,0 +1,4 @@
+experiments/
+.vscode/
+data/
+__pycache__/

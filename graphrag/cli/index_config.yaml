@@ -1,0 +1,60 @@
+# INDEX CONFIGURATION
+# configuration of entity alignment
+align:
+  - method: type
+    params:
+  - method: sim
+    params:
+      threshold: 0.75
+  - method: llm
+    params:
+
+# configuration of Splitter [token, sent]
+splitter:
+  name: token
+  params:
+    chunk_size: 1024
+    over_lap: 128
+    encoding_name: "cl100k_base"
+  
+  # name: sent
+  # params:
+  #   chunk_size: 1024
+  #   encoding_name: "cl100k_base"
+  #   model_name: "en_core_web_sm"
+
+# configuration of entity extraction
+entity_types:
+  - PERSON
+  - NORP
+  - FAC
+  - ORG
+  - LOC
+  - EVENT
+  - GPE
+  - PRODUCT
+
+entity_extractors:
+  # - extractor: ner
+  #   params:
+  #     ner_model: "en_core_web_sm"
+  - extractor: llm
+    params:
+      max_gleanings: 2
+
+# configuration of relation extraction
+relation_extractors:
+  - extractor: llm
+    params:
+      max_gleanings: 2
+
+# configuration of Connector
+connector:
+  model_name: "en_core_web_sm"
+  ignore_case: false
+  filter_threshold: 5
+
+# generate model
+model: "gpt-4o-mini"
+
+output: "./output/index_1201"

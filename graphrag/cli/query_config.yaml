@@ -1,0 +1,2 @@
+llm: "gpt-4o-mini"
+threshold: 0.75
