@@ -39,23 +39,26 @@ class Builder:
             res.append(response)
         return "".join(res)
     
-    def _load_doc(self, doc_or_path: str) -> str:
+    def _load_doc(self, doc_or_path: str, replace_pronoun: bool = False) -> str:
         if os.path.exists(doc_or_path):
-            # Check if there are processed doc files under this folder
-            doc_file_name = os.path.basename(doc_or_path).split(".")[0]
-            doc_dir = os.path.dirname(doc_or_path)
-            processed_doc_path = os.path.join(doc_dir, f"{doc_file_name}_processed.txt")
-            if os.path.exists(processed_doc_path):
-                # If it exist, read the processed file directly
-                text = open(processed_doc_path, "r", encoding="utf-8").read()
+            if replace_pronoun:
+                # Check if there are processed doc files under this folder
+                doc_file_name = os.path.basename(doc_or_path).split(".")[0]
+                doc_dir = os.path.dirname(doc_or_path)
+                processed_doc_path = os.path.join(doc_dir, f"{doc_file_name}_processed.txt")
+                if os.path.exists(processed_doc_path):
+                    # If it exist, read the processed file directly
+                    text = open(processed_doc_path, "r", encoding="utf-8").read()
+                else:
+                    # Otherwise process original file and save the processed data
+                    raw_content = open(doc_or_path, "r", encoding="utf-8").read()
+                    text = self._pronoun_replace(raw_content)
+                    with open(processed_doc_path, "w", encoding="utf-8", newline="") as f:
+                        f.write(text)
             else:
-                # Otherwise process original file and save the processed data
-                raw_content = open(doc_or_path, "r", encoding="utf-8").read()
-                text = self._pronoun_replace(raw_content)
-                with open(processed_doc_path, "w", encoding="utf-8", newline="") as f:
-                    f.write(text)
+                text = open(doc_or_path, "r", encoding="utf-8").read()
         else:
-            text = self._pronoun_replace(doc_or_path)
+            text = self._pronoun_replace(doc_or_path) if replace_pronoun else doc_or_path
         return text
     
     def _merge(self, targ: nx.Graph, subgraph: nx.Graph):
@@ -106,11 +109,13 @@ class Builder:
         df = pd.DataFrame([record.__dict__ for record in data])
         df.to_parquet(output, engine="pyarrow")
     
-    def run(self, doc_or_path: str, output: str):
+    def run(self, doc_or_path: str, output: str, replace_pronoun: bool = False):
+        # Just in case
+        self._llm.reset()
         text_units = []
         graph = nx.Graph()
         # Step 1: Load document
-        text = self._load_doc(doc_or_path)
+        text = self._load_doc(doc_or_path, replace_pronoun)
         # Step 2: Split document into chunks
         chunks = self._text_splitter.split_text(text)
         
@@ -169,6 +174,8 @@ class Builder:
         # Step 6: Align entities
         self._align_pipeline.run(entities)
         # Step 7: Save result
+        if not os.path.exists(output):
+            os.makedirs(output)
         self._save(entities, os.path.join(output, "entities.parquet"))
         self._save(relations, os.path.join(output, "relations.parquet"))
         self._save(text_units, os.path.join(output, "text_units.parquet"))

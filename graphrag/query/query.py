@@ -40,21 +40,18 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
             for u, v in subgraph.edges()
         ]
     }
-    logging.info("Retrieved subgraph: %s", kg_context)
     llm.reset()
     response = llm.generate(
         KG_JUDGE_PROMPT.format(knowledge_graph=str(kg_context), question=query),
     )
-    logging.info("Context judgement: %s", response)
     if response == "YES":
         return kg_context, llm.generate(ANSWER_PROMPT.format(knowledge_graph=str(subgraph), question=query))
     # Extract attributes of entity required
-    response = llm.generate(ADDITIONAL_INFO_PROMPT)
+    response = llm.generate(ADDITIONAL_INFO_PROMPT.format(question=query, knowledge_graph=kg_context))
     response = str2json(response)
     extracted_attrs = {}
     for entity, attributes in response.items():
-        logging.info("Extracting information of %s...", entity)
-        if not attributes:
+        if entity not in kg_context["entities"] or not attributes:
             continue
         text_units4ent = [
             id2text_units[text_unit_id]
@@ -66,6 +63,7 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
                 text_units4ent,
                 threshold
             )
+            # extracted_attrs[entity] = contexts
             extracted_attrs[entity] = []
             for i, attribute in enumerate(attributes):
                 response = llm.generate(
@@ -82,4 +80,6 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
             kg_context["entities"][-1]["information"] = extracted_attrs.get(id2ent[entity].name)
     contexts = str(kg_context)
     response = llm.generate(ANSWER_PROMPT.format(knowledge_graph=contexts, question=query))
+    messages = "\n".join([f"{turn['role']}: {turn['content']}" for turn in llm.messages])
+    logging.info("Response:\n%s", messages)
     return contexts, response.replace("\n\n", "\n")
