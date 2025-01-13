@@ -1,5 +1,3 @@
-from typing import List
-
 import networkx as nx
 import numpy as np
 
@@ -17,26 +15,35 @@ def extract_entities(text: str, llm: LLM) -> list[str]:
     response = llm.generate(ENTITY_EXTRACTION.format(input_text=text))
     return str2json(response)
 
-def retrieve_entities(entities: list[str], all_entities: list[Entity]) -> list[Entity]:
+def retrieve_entities(query: str, cand_entities: list[str], all_entities: list[Entity], threshold: float = 0.75) -> list[Entity]:
+    """Retrieve relevant entities from the entity set through queries and candidate entities"""
+    # Retrieve entities based on candidate entities.
     name2ent = {entity.name.lower(): entity for entity in all_entities}
-    retrieved_entities = []
+    retrieved_entities = set()
     remains= []
-    for entity in entities:
+    for entity in cand_entities:
         # ?: Should case sensitivity be ignored?
         if entity.lower() in name2ent:
-            retrieved_entities.append(name2ent[entity.lower()])
+            retrieved_entities.append(entity.lower())
         else:
-            # If extracted entity not in entity set
             remains.append(entity)
     if remains:
-        # Retrieve most similari three entities from entity set
-        _, max_ids = retrieve(
+        # Retrieve most similar three entities with similarity above the threshold from entity set.
+        indices, _ = retrieve(
             query=np.array(get_embedding(remains)),
             target=np.array([entity.embedding for entity in all_entities]),
             top_k=3,
+            threshold=threshold,
         )
-        retrieved_entities.extend(all_entities[id] for id in set(id for ids in max_ids for id in ids))
-    return retrieved_entities
+        retrieved_entities.update(all_entities[id].name for ids in indices for id in ids)
+    
+    # Retrieve entities based on query.
+    query_embedding = np.array(get_embedding(query))
+    entities_embedding = np.array([entity.embedding for entity in all_entities])
+    # Retrieve entities with similarity above the threshold from entity set. 
+    indices, _ = retrieve(query_embedding, entities_embedding, threshold=threshold)
+    retrieved_entities.update(all_entities[id].name for id in indices[0])
+    return [name2ent[name] for name in retrieved_entities]
 
 def retrieve_subgraph(query: str, graph: nx.Graph, nodes: list[str], threshold: float) -> nx.Graph:
     query_embedding = np.array(get_embedding(query))
@@ -59,9 +66,10 @@ def retrieve_subgraph(query: str, graph: nx.Graph, nodes: list[str], threshold: 
         cur_idx += 1
     return graph.subgraph(nodes)
 
-def retrieve_text_units(queries: list[str], text_units: list[TextUnit], threshold: float) -> list[list[str]]:
-    sim_matrix = get_cos_sim_matrix(
-        x=np.array(get_embedding(queries)),
-        y=np.array([text_unit.embedding for text_unit in text_units]),
+def retrieve_text_units(queries: list[str], text_units: list[TextUnit], **kwds) -> list[list[str]]:
+    indices, _ = retrieve(
+        np.array(get_embedding(queries)),
+        np.array([text_unit.embedding for text_unit in text_units]),
+        **kwds
     )
-    return [[text_units[i].content for i, sim in enumerate(q2ts) if sim > threshold] for q2ts in sim_matrix]
+    return [[text_units[id].content for id in ids] for ids in indices]

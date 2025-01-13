@@ -1,1 +1,1 @@
-from .text_split import SentenceSplitter, TextSplitter, TokenTextSplitter
+from .text_split import TextSplitter, TokenTextSplitter

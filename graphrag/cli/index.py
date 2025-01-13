@@ -2,7 +2,7 @@ from graphrag.index import Builder
 from graphrag.index.aligner import *
 from graphrag.index.connector import SentenceConnector
 from graphrag.index.extractor import *
-from graphrag.index.text_splitter import SentenceSplitter, TokenTextSplitter
+from graphrag.index.text_splitter import TokenTextSplitter
 from graphrag.llm import OpenAIModel
 from graphrag.utils.config import get_config
 
@@ -44,9 +44,7 @@ def get_builder(config_path: str):
         rel_extractors=relation_extractors,
     )
     
-    if config["splitter"]["name"] == "sent":
-        splitter = SentenceSplitter(**config["spliiter"]["params"])
-    elif config["splitter"]["name"] == "token":
+    if config["splitter"]["name"] == "token":
         splitter = TokenTextSplitter(**config["splitter"]["params"])
     
     pipeline_config = config["align"]

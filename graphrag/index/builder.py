@@ -137,7 +137,6 @@ class Builder:
         ]
         # Embedding, batch processing
         embeddings = get_embedding(description_list)
-        # TODO: Removing duplicate relationships based on similarity (optional)
         for i, (node, data) in enumerate(graph.nodes(data=True)):
             entities.append(Entity(
                 id=str(len(entities)),

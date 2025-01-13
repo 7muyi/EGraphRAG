@@ -28,7 +28,7 @@ output:
 
 DESC_EXTRACTION_PROMPT = """Given a text document and a list of entities, extract descriptive information each entity from the text.
 -Step-
-1. Identify entities in the text and describe the entity with a brief sentence.
+1. Identify entities in the text and generate entity description.
 2. Output in JSON format without annotations:
 [
     {{

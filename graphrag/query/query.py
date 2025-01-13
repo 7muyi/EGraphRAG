@@ -2,8 +2,10 @@ import logging
 
 from graphrag.llm import LLM
 from graphrag.prompts.query.generate import (ADDITIONAL_INFO_PROMPT,
-                                             ANSWER_PROMPT, ATTRIBUTE_EXTRACT,
-                                             KG_JUDGE_PROMPT)
+                                             ATTRIBUTE_EXTRACT,
+                                             EKG_ANSWER_PROMPT,
+                                             KG_JUDGE_PROMPT,
+                                             TEXT_ANSWER_PROMPT)
 from graphrag.utils.transform import str2json
 
 from .loader import load_graph
@@ -22,9 +24,20 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
     extracted_entities = extract_entities(query, llm)
     logging.info("Extracted entities from query: %s", ", ".join(extracted_entities))
     # Retrieve entity from entity set
-    retrieved_entities = retrieve_entities(extracted_entities, entities)
+    retrieved_entities = retrieve_entities(query, extracted_entities, entities)
     logging.info("Retrieved entities from knowledge graph: %s", ", ".join(entity.name for entity in retrieved_entities))
     nodes = [entity.id for entity in retrieved_entities]
+    if not nodes:
+        # Become Text RAG
+        contexts = retrieve_text_units(
+            query,
+            text_units,
+            threshold=threshold,
+            top_k=5,
+        )[0]
+        llm.reset()
+        response = llm.generate(TEXT_ANSWER_PROMPT.format(question=query, context="\n".join(contexts)))
+        return contexts, response
     # Retrieve subgraph
     subgraph = retrieve_subgraph(query, graph, nodes, threshold)
     # Constrcut context
@@ -45,7 +58,8 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
         KG_JUDGE_PROMPT.format(knowledge_graph=str(kg_context), question=query),
     )
     if response == "YES":
-        return kg_context, llm.generate(ANSWER_PROMPT.format(knowledge_graph=str(subgraph), question=query))
+        response = llm.generate(EKG_ANSWER_PROMPT.format(knowledge_graph=str(subgraph), question=query))
+        return kg_context, response
     # Extract attributes of entity required
     response = llm.generate(ADDITIONAL_INFO_PROMPT.format(question=query, knowledge_graph=kg_context))
     response = str2json(response)
@@ -58,12 +72,14 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
             for text_unit_id in name2ent[entity].text_units
         ]
         if text_units4ent:
+            # ?: Is it necessary to use an LLM to extract information from text units?
+            
+            # *: 1. Use LLM extract specific information from relevant text_units
             contexts = retrieve_text_units(
                 [f"{entity}: {attribute}" for attribute in attributes],
                 text_units4ent,
-                threshold
+                threshold=threshold
             )
-            # extracted_attrs[entity] = contexts
             extracted_attrs[entity] = []
             for i, attribute in enumerate(attributes):
                 response = llm.generate(
@@ -71,6 +87,15 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
                 )
                 logging.info("The %s of %s: %s", attribute, entity, response)
                 extracted_attrs[entity].append(response)
+            
+            # *: 2. Usd relevant text_units as context
+            contexts = retrieve_text_units(
+                [f"{entity}: {attribute}" for attribute in attributes],
+                text_units4ent,
+                threshold=threshold,
+                top_k=3,
+            )
+            extracted_attrs[entity] = contexts
     kg_context["entities"] = []
     for entity in subgraph.nodes():
         kg_context["entities"].append({
@@ -79,7 +104,7 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
         if extracted_attrs.get(id2ent[entity].name):
             kg_context["entities"][-1]["information"] = extracted_attrs.get(id2ent[entity].name)
     contexts = str(kg_context)
-    response = llm.generate(ANSWER_PROMPT.format(knowledge_graph=contexts, question=query))
+    response = llm.generate(EKG_ANSWER_PROMPT.format(knowledge_graph=contexts, question=query))
     messages = "\n".join([f"{turn['role']}: {turn['content']}" for turn in llm.messages])
     logging.info("Response:\n%s", messages)
     return contexts, response.replace("\n\n", "\n")

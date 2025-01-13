@@ -63,13 +63,24 @@ Context:
 Information:
 """
 
-ANSWER_PROMPT = """Answer the question based on the given knowledge graph. If you can not answer just output "I CAN NOT ANSWER."
+EKG_ANSWER_PROMPT = """Answer the question based on the given knowledge graph. If you can not answer just output "I CAN NOT ANSWER."
 
 Question:
 {question}
 
 Knowledge Graph:
 {knowledge_graph}
+
+Output:
+"""
+
+TEXT_ANSWER_PROMPT = """Answer the question based on the given contexxt. If you can not answer just output "I CAN NOT ANSWER."
+
+Question:
+{question}
+
+Context:
+{context}
 
 Output:
 """
