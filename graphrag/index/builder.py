@@ -22,8 +22,8 @@ class Builder:
                  llm: LLM,
                  text_splitter: TextSplitter,
                  extractor: GraphExtractor,
-                 connector: Connector,
-                 align_pipeline: AlignPipeline):
+                 connector: Connector = None,
+                 align_pipeline: AlignPipeline = None):
         self._llm = llm
         self._text_splitter = text_splitter
         self._extractor = extractor
@@ -34,8 +34,7 @@ class Builder:
         res = []
         # To avoid text exceeding the input length limit, replace it in blocks
         for i in range(0, len(text), max_length):
-            self._llm.reset()
-            response = self._llm.generate(PRONOUN_REPLACE_PROMPT.format(input_text=text[i:i+max_length]))
+            response = self._llm.single_turn(PRONOUN_REPLACE_PROMPT.format(input_text=text[i:i+max_length]))
             res.append(response)
         return "".join(res)
     
@@ -59,7 +58,7 @@ class Builder:
                 text = open(doc_or_path, "r", encoding="utf-8").read()
         else:
             text = self._pronoun_replace(doc_or_path) if replace_pronoun else doc_or_path
-        return text
+        return text.replace("\n\n", "\n")
     
     def _merge(self, targ: nx.Graph, subgraph: nx.Graph):
         # Merge node
@@ -68,7 +67,8 @@ class Builder:
             if node in targ.nodes() and data["type"] == targ.nodes[node]["type"]:
                 # Merge `description` and `corpus`
                 targ.nodes[node]["description"].extend(data["description"])
-                targ.nodes[node]["text_units"].extend(data["text_units"])
+                if self._connector:
+                    targ.nodes[node]["text_units"].extend(data["text_units"])
             else:
                 targ.add_node(node, **data)
         # Merge edge
@@ -83,8 +83,7 @@ class Builder:
             return "None"
         if len(descs) == 1:
             return descs[0]
-        self._llm.reset()
-        response = self._llm.generate(
+        response = self._llm.single_turn(
             ENTITY_DESCRIPTION_SUMMARY_PROMPT.format(
                 entity=entity,
                 descriptions="\n".join(f"{i + 1}: {desc}" for i, desc in enumerate(descs))
@@ -96,8 +95,7 @@ class Builder:
             return "None"
         if len(descs) == 1:
             return descs[0]
-        self._llm.reset()
-        response = self._llm.generate(
+        response = self._llm.single_turn(
             RELATION_DESCRIPTION_SUMMARY_PROMPT.format(
                 source=source,
                 target=target,
@@ -110,8 +108,6 @@ class Builder:
         df.to_parquet(output, engine="pyarrow")
     
     def run(self, doc_or_path: str, output: str, replace_pronoun: bool = False):
-        # Just in case
-        self._llm.reset()
         text_units = []
         graph = nx.Graph()
         # Step 1: Load document
@@ -123,7 +119,8 @@ class Builder:
             # Step 3: Extract KG from each chunk
             g = self._extractor.run(chunk)
             # Step 4: Connect chunk to KG
-            text_units.extend(self._connector.connect(g, chunk))
+            if self._connector:
+                text_units.extend(self._connector.connect(g, chunk))
             # Step 5: Merge `g` to `graph`
             self._merge(graph, g)
         
@@ -144,7 +141,7 @@ class Builder:
                 type=data["type"],
                 description=description_list[i],
                 embedding=embeddings[i],
-                text_units=data["text_units"],
+                text_units=data.get("text_units"),
             ))
         
         # Summary description for each relation
@@ -164,14 +161,9 @@ class Builder:
                 embedding=embeddings[i]
             ))
         
-        # Embedding text_unit
-        texts = [text_unit.content for text_unit in text_units]
-        embeddings = get_embedding(texts)
-        for i, text_unit in enumerate(text_units):
-            text_unit.embedding = embeddings[i]
-        
         # Step 6: Align entities
-        self._align_pipeline.run(entities)
+        if self._align_pipeline:
+            self._align_pipeline.run(entities)
         # Step 7: Save result
         if not os.path.exists(output):
             os.makedirs(output)

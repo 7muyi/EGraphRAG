@@ -11,11 +11,10 @@ from graphrag.utils.transform import str2json
 
 def extract_entities(text: str, llm: LLM) -> list[str]:
     # Extract entity from input text
-    llm.reset()
-    response = llm.generate(ENTITY_EXTRACTION.format(input_text=text))
+    response = llm.single_turn(ENTITY_EXTRACTION.format(input_text=text))
     return str2json(response)
 
-def retrieve_entities(query: str, cand_entities: list[str], all_entities: list[Entity], threshold: float = 0.75) -> list[Entity]:
+def retrieve_entities(query: str, cand_entities: list[str], all_entities: list[Entity], threshold: float = 0.65) -> list[Entity]:
     """Retrieve relevant entities from the entity set through queries and candidate entities"""
     # Retrieve entities based on candidate entities.
     name2ent = {entity.name.lower(): entity for entity in all_entities}
@@ -24,7 +23,7 @@ def retrieve_entities(query: str, cand_entities: list[str], all_entities: list[E
     for entity in cand_entities:
         # ?: Should case sensitivity be ignored?
         if entity.lower() in name2ent:
-            retrieved_entities.append(entity.lower())
+            retrieved_entities.add(entity.lower())
         else:
             remains.append(entity)
     if remains:
@@ -35,17 +34,17 @@ def retrieve_entities(query: str, cand_entities: list[str], all_entities: list[E
             top_k=3,
             threshold=threshold,
         )
-        retrieved_entities.update(all_entities[id].name for ids in indices for id in ids)
+        retrieved_entities.update(all_entities[id].name.lower() for ids in indices for id in ids)
     
     # Retrieve entities based on query.
     query_embedding = np.array(get_embedding(query))
     entities_embedding = np.array([entity.embedding for entity in all_entities])
     # Retrieve entities with similarity above the threshold from entity set. 
     indices, _ = retrieve(query_embedding, entities_embedding, threshold=threshold)
-    retrieved_entities.update(all_entities[id].name for id in indices[0])
+    retrieved_entities.update(all_entities[id].name.lower() for id in indices[0])
     return [name2ent[name] for name in retrieved_entities]
 
-def retrieve_subgraph(query: str, graph: nx.Graph, nodes: list[str], threshold: float) -> nx.Graph:
+def retrieve_subgraph(query: str, graph: nx.Graph, nodes: list[str], threshold: float=0.65) -> nx.Graph:
     query_embedding = np.array(get_embedding(query))
     cur_idx = 0
     while cur_idx < len(nodes):

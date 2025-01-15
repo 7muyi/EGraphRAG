@@ -30,8 +30,7 @@ def similarity_align(entities: list[Entity], threshold: float = 0.75) -> list[li
 
 def llm_align(entities: list[Entity], llm: LLM) -> list[list[Entity]]:
     """Using LLM for clustering"""
-    llm.reset()
-    response = llm.generate(ENTITY_ALIGNMENT_PROMPT.format(
+    response = llm.single_turn(ENTITY_ALIGNMENT_PROMPT.format(
         entities=[
             {"name": entity.name, "description": entity.description}
             for entity in entities

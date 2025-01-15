@@ -2,7 +2,7 @@ import hashlib
 import re
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any
+from collections import defaultdict
 
 import networkx as nx
 import tiktoken
@@ -28,7 +28,7 @@ class SentenceConnector(Connector):
                  model_name: str = "en_core_web_sm",
                  encoding_model: str = "cl100k_base") -> None:
         self._llm = llm
-        self._MAX_LENGTH = 512
+        self._MAX_LENGTH = 256
         self._nlp = SpacyModel.get_model(model_name)
         self._encoding_model = tiktoken.get_encoding(encoding_model)
     
@@ -43,8 +43,7 @@ class SentenceConnector(Connector):
     
     def _sent_evaluate(self, sents: list[str]) -> list[int]:
         """Using LLM to evaluate the information content of sentences."""
-        self._llm.reset()
-        response = self._llm.generate(
+        response = self._llm.single_turn(
             SENTENCE_EVALUATION_PROMPT.format(
                 input_text="\n".join(f"{i}. {sent}" for i, sent in enumerate(sents))
             )
@@ -79,22 +78,22 @@ class SentenceConnector(Connector):
     
     def _connect(
         self,
-        entities: list[Any],
+        graph: nx.Graph,
         sents: list[str],
         ignore_case: bool = True,
+        merge_sent: bool = True,
         threshold: int = -1) -> list[TextUnit]:
         """Building connections between entities and sentences."""
         # Evaluate sentences based on information content
         if threshold != -1:
             scores = self._sent_evaluate(sents)
         
-        text_units = {}
-        for entity, data in entities:
-            if "text_units" not in data:
-                data["text_units"] = []
-            corpus = []
+        sent2ents: list[list[str]] = [[] for _ in range(len(sents))]
+        ent2sents: dict[str, list[int]] = defaultdict(list)
+        for entity in graph.nodes():
+            graph.nodes[entity]["text_units"] = []
             # Search for sentences with entities appearing
-            for i, sent in enumerate(sents):
+            for sent_id, sent in enumerate(sents):
                 # Filter out sentences with score below the threshold
                 if threshold != -1 and scores and scores[i] < threshold:
                     continue
@@ -105,40 +104,72 @@ class SentenceConnector(Connector):
                     find = re.search(self._get_pattern(entity), sent)
                 
                 if find:
-                    corpus.append(i)
-            if not corpus:
-                # Without ignoring capitalization, it is possible to encounter sentences where entities cannot be found
-                continue
-            # Merge consecutive sentences
-            ids = self._merge_nums(corpus)
-            # Construct TextUnits, each consisting of consecutive sentences with a length not exceeding MAX_LENGTH
-            for sents_id in ids:
-                final_sents_id = [sents_id[0]]
-                length = self._num_tokens(sents[sents_id[0]])
-                for sent_id in sents_id[1:]:
-                    length_ = length + self._num_tokens(sents[sent_id])
-                    if length_ <= self._MAX_LENGTH:
-                        final_sents_id.append(sent_id)
-                        length = length_
-                    else:
-                        hash_id = self._get_hash(final_sents_id)
-                        # Duplicate removal
-                        if hash_id not in text_units:
-                            text_units[hash_id] = TextUnit(
-                                id=str(uuid.uuid1()),
-                                content=" ".join(sents[id] for id in final_sents_id)
-                            )
-                        data["text_units"].append(text_units[hash_id].id)
-                        length = length_ - length
-                        final_sents_id = [sent_id]
-                # Post processing
-                hash_id = self._get_hash(final_sents_id)
-                if hash_id not in text_units:
-                    text_units[hash_id] = TextUnit(
-                        id=str(uuid.uuid1()),
-                        content=" ".join(sents[id] for id in final_sents_id)
-                    )
-                data["text_units"].append(text_units[hash_id].id)
+                    sent2ents[sent_id].append(entity)
+                    ent2sents[entity].append(sent_id)
+        # Associate unrelated sentences with the nearest entities on both sides
+        i = 0
+        while i < len(sents):
+            if not sent2ents[i]:
+                # Search forward for the nearest sentences containing entities
+                j = i - 1
+                # Search backwards for the nearest sentence containing entities
+                while i < len(sents) and not sent2ents[i]:
+                    i += 1
+                # Associate unrelated sentences with entities that appear in the nearest sentences on both sides
+                for k in range(j + 1, i):
+                    if threshold != -1 and scores and scores[k] < threshold:
+                        continue
+                    if j >= 0:
+                        for entity in sent2ents[j]:
+                            ent2sents[entity].append(k)
+                    if i < len(sents):
+                        for entity in sent2ents[i]:
+                            ent2sents[entity].append(k)
+            else:
+                i += 1
+        text_units = {}
+        if merge_sent:
+            # Merge sentences
+            sent_num_tokens = list(map(self._num_tokens, sents))
+            for entity, ref_sents in ent2sents.items():
+                # Construct TextUnits, each consisting of consecutive sentences with a length not exceeding MAX_LENGTH
+                ids = self._merge_nums(ref_sents)
+                for sents_id in ids:
+                    final_sents_id = [sents_id[0]]
+                    length = sent_num_tokens[sents_id[0]]
+                    for sent_id in sents_id[1:]:
+                        length_ = length + sent_num_tokens[sent_id]
+                        if length_ <= self._MAX_LENGTH:
+                            final_sents_id.append(sent_id)
+                            length = length_
+                        else:
+                            hash_id = self._get_hash(final_sents_id)
+                            # Duplicate removal
+                            if hash_id not in text_units:
+                                text_units[hash_id] = TextUnit(
+                                    id=str(uuid.uuid1()),
+                                    content=" ".join(sents[id] for id in final_sents_id)
+                                )
+                            graph.nodes[entity]["text_units"].append(text_units[hash_id].id)
+                            length = length_ - length
+                            final_sents_id = [sent_id]
+                    # Post processing
+                    hash_id = self._get_hash(final_sents_id)
+                    if hash_id not in text_units:
+                        text_units[hash_id] = TextUnit(
+                            id=str(uuid.uuid1()),
+                            content=" ".join(sents[id] for id in final_sents_id)
+                        )
+                    graph.nodes[entity]["text_units"].append(text_units[hash_id].id)
+        else:
+            for entity, ref_sents in ent2sents.items():
+                for sent_id in ref_sents:
+                    if sent_id not in text_units:
+                        text_units[sent_id] = TextUnit(
+                            id=str(uuid.uuid1()),
+                            content=sents[sent_id]
+                        )
+                    graph.nodes[entity]["text_units"].append(text_units[sent_id].id)
         text_units = [text_unit for _, text_unit in text_units.items()]
         # Perform batch embedding
         embeddings = get_embedding([text_unit.content for text_unit in text_units])
@@ -150,5 +181,5 @@ class SentenceConnector(Connector):
         # Split text into sentences
         sents = self._get_sents(text)
         # Build connection between graph and chunk
-        text_units = self._connect(graph.nodes(data=True), sents, ignore_case=False, threshold=5)
+        text_units = self._connect(graph, sents, ignore_case=True, threshold=4, merge_sent=False)
         return text_units

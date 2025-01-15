@@ -47,15 +47,19 @@ def get_builder(config_path: str):
     if config["splitter"]["name"] == "token":
         splitter = TokenTextSplitter(**config["splitter"]["params"])
     
-    pipeline_config = config["align"]
-    for method in config["align"]:
-        if method["method"] == "llm":
-            method["params"] = {"llm": llm}
-    align_pipeline = AlignPipeline.from_dict(pipeline_config)
+    align_pipeline = None
+    if "align" in config:
+        pipeline_config = config["align"]
+        for method in config["align"]:
+            if method["method"] == "llm":
+                method["params"] = {"llm": llm}
+        align_pipeline = AlignPipeline.from_dict(pipeline_config)
     
-    connector_config = config["connector"]
-    connector_config["llm"] = llm
-    connector = SentenceConnector(**connector_config)
+    connector = None
+    if "connector" in config:
+        connector_config = config["connector"]
+        connector_config["llm"] = llm
+        connector = SentenceConnector(**connector_config)
     
     return Builder(
         llm,

@@ -14,19 +14,19 @@ class LLMExtractor:
         self._max_gleanings = max_gleanings
     
     def _llm_extract(self, extract_prompt: str, continue_prompt: str, loop_prompt: str) -> list[str]:
-        self._llm.reset()
+        self._llm.reset()  # Just in case
         
         results = []
-        response = self._llm.generate(extract_prompt)
+        response = self._llm.multi_turn(extract_prompt)
         results.append(response)
         
         # ensure to extract as many information as possible
         for _ in range(self._max_gleanings - 1):
-            response = self._llm.generate(continue_prompt)
+            response = self._llm.multi_turn(continue_prompt)
             results.append(response)
             
             # determine there further extraction is necessary
-            response = self._llm.generate(loop_prompt)
+            response = self._llm.multi_turn(loop_prompt)
             if response != "YES":
                 break
         return results
@@ -91,9 +91,8 @@ class NEREntityExtractor(EntityExtractor, LLMExtractor):
         return self._extract_desc(text, entities)
     
     def _extract_desc(self, text: str, entities: list[Any]) -> list[Any]:
-        self._llm.reset()
         # Extract description of entity from text.
-        response = self._llm.generate(self._extraction_prompt.format(entities=entities, input_text=text))
+        response = self._llm.single_turn(self._extraction_prompt.format(entities=entities, input_text=text))
         return str2json(response)
 
 
