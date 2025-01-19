@@ -95,7 +95,7 @@ class SentenceConnector(Connector):
             # Search for sentences with entities appearing
             for sent_id, sent in enumerate(sents):
                 # Filter out sentences with score below the threshold
-                if threshold != -1 and scores and scores[i] < threshold:
+                if threshold != -1 and scores and scores[sent_id] < threshold:
                     continue
                 # Check whether the entity appears in the sentence
                 if ignore_case:
@@ -181,5 +181,5 @@ class SentenceConnector(Connector):
         # Split text into sentences
         sents = self._get_sents(text)
         # Build connection between graph and chunk
-        text_units = self._connect(graph, sents, ignore_case=True, threshold=4, merge_sent=False)
+        text_units = self._connect(graph, sents, ignore_case=True, threshold=4)
         return text_units

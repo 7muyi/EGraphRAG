@@ -21,10 +21,10 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
     
     # Extract entities from query
     extracted_entities = extract_entities(query, llm)
-    logging.info("Extracted entities: %s", ", ".join(extracted_entities))
+    # logging.info("Extracted entities: %s", ", ".join(extracted_entities))
     # Retrieve entity from entity set
     retrieved_entities = retrieve_entities(query, extracted_entities, entities)
-    logging.info("Retrieved entities: %s", ", ".join(entity.name for entity in retrieved_entities))
+    # logging.info("Retrieved entities: %s", ", ".join(entity.name for entity in retrieved_entities))
     nodes = [entity.id for entity in retrieved_entities]
     if not nodes:
         # Become Text RAG
@@ -34,8 +34,8 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
             top_k=7,
         )[0]
         response = llm.single_turn(TEXT_ANSWER_PROMPT.format(question=query, context="\n".join(contexts)))
-        logging.info(f"Context:\n%s", str(contexts))
-        logging.info(f"Response:\n%s", response)
+        # logging.info(f"Context:\n%s", str(contexts))
+        # logging.info(f"Response:\n%s", response)
         return contexts, response
     # Retrieve subgraph
     subgraph = retrieve_subgraph(query, graph, nodes, threshold)
@@ -58,8 +58,8 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
     )
     if response == "YES":
         response = llm.multi_turn(EKG_ANSWER_PROMPT.format(knowledge_graph=str(kg_context), question=query))
-        logging.info(f"Context:\n%s", str(kg_context))
-        logging.info(f"Response:\n%s", response)
+        # logging.info(f"Context:\n%s", str(kg_context))
+        # logging.info(f"Response:\n%s", response)
         return kg_context, response
     # Extract attributes of entity required
     response = llm.multi_turn(ADDITIONAL_INFO_PROMPT.format(question=query, knowledge_graph=kg_context))
@@ -81,8 +81,8 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
         )
         extracted_attrs[entity] = []
         for i, attribute in enumerate(attributes):
-            logging.info("%s: %s", entity, attribute)
-            logging.info("Context:\n%s", "\n".join(contexts[i]))
+            # logging.info("%s: %s", entity, attribute)
+            # logging.info("Context:\n%s", "\n".join(contexts[i]))
             response = llm.multi_turn(
                 ATTRIBUTE_EXTRACT.format(entity=entity, attribute=attribute, context="\n".join(contexts[i]))
             )
@@ -99,7 +99,7 @@ def generate(query: str, llm: LLM, data_dir: str, threshold: float):
             kg_context["entities"][-1]["information"] = extracted_attrs.get(id2ent[entity].name)
     contexts = str(kg_context)
     response = llm.multi_turn(EKG_ANSWER_PROMPT.format(knowledge_graph=contexts, question=query))
-    logging.info("Context:\n%s", contexts)
+    # logging.info("Context:\n%s", contexts)
     messages = "\n".join([f"{turn['role']}: {turn['content']}" for turn in llm.messages if turn["role"] == "assistant"])
-    logging.info("Response:\n%s", messages)
+    # logging.info("Response:\n%s", messages)
     return contexts, response.replace("\n\n", "\n")
